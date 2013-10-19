@@ -10,6 +10,7 @@ import string
 import pygtk
 pygtk.require('2.0')
 import gtk
+import pango
 
 from Crypto.Cipher import CAST
 from Crypto.Hash import SHA256
@@ -108,6 +109,77 @@ class Storage:
         return (not os.path.exists(self.master_key_file)) \
             and os.path.exists(self.path) \
             and len(os.listdir(self.path))>0
+
+class PasswordTrainerWindow:
+    def update_label(self):
+        masked_pw='?'*self.learned_chars+self.password[self.learned_chars:]
+        self.pw_label.set_text(masked_pw)
+        
+    def __init__(self, password):
+        self.password=password
+        self.learned_chars=0
+
+        self.window=gtk.Window()
+        self.window.set_border_width(3)
+        vbox=gtk.VBox()
+
+        self.pw_label=gtk.Label()
+        self.pw_label.show()
+        self.pw_label.modify_font(pango.FontDescription('monospace'))
+        
+        manual_label=gtk.Label("This is the password trainer."+
+            "\nYou learn new passwords by entering them many times."+
+            "\nEach time you type your password correctly,\n one character "
+            "of your password disappears.\n"
+            "This helps you to remember your password.")
+        manual_label.show()
+
+        self.info_label=gtk.Label()
+        self.info_label.show()
+        
+
+        self.pw_entry=gtk.Entry()
+        self.pw_entry.set_visibility(False)
+        self.pw_entry.show()
+        self.pw_entry.set_activates_default(True)
+
+        enter=gtk.Button("Enter")
+        enter.set_flags(gtk.CAN_DEFAULT)
+        enter.connect("clicked", lambda x, y: self.enter(), None)
+        enter.show()
+
+
+        vbox.pack_start(manual_label, padding=5)
+        vbox.pack_start(self.pw_label)
+        vbox.pack_start(self.info_label, padding=10)
+        vbox.pack_start(self.pw_entry, False, False, padding=2)
+        vbox.pack_start(enter, False, False, padding=2)
+
+        vbox.show()
+
+        self.window.add(vbox)
+        self.window.set_default_size(300, 150)
+        self.window.set_default(enter)
+        self.window.set_title("Password Trainer")
+        self.window.show()
+
+        self.update_label()
+
+    def enter(self):
+        if self.pw_entry.get_text()==self.password:
+            self.info_label.set_markup("<b><span color='darkgreen'>Right password.</span></b>")
+            self.learned_chars+=1
+            if self.learned_chars>len(self.password):
+                self.learned_chars=len(self.password)
+        else:
+            self.info_label.set_markup("<b><span color='red'>Wrong password.</span></b>")
+            self.learned_chars-=1
+            if self.learned_chars<0: self.learned_chars=0
+
+        self.pw_entry.set_text("")
+
+
+        self.update_label()
 
 class RecordWindow:
     def build_record(self):
@@ -268,6 +340,10 @@ class PasswordRecordWindow(RecordWindow):
         ("Punctuation", False, string.punctuation)
     )
 
+    def pw_train(self, a, b):
+        PasswordTrainerWindow(self.entry["password"].get_text())
+        self.pw_show_button.set_active(False)
+
     def pw_gen_dialog(self, a, b):
         dialog = gtk.Dialog("Generate Password")
         dialog.set_border_width(3)
@@ -314,12 +390,19 @@ class PasswordRecordWindow(RecordWindow):
         self.entry["password"].set_text(result)
 
     def update_pw_gen_clickable(self):
-        self.pw_gen_button.set_sensitive(
-            len(self.entry["password"].get_text())==0)
+        pw_set=len(self.entry["password"].get_text())!=0
+        self.pw_gen_button.set_sensitive(not pw_set)
+        self.pw_train_button.set_sensitive(pw_set and
+            self.pw_show_button.get_active())
+
+    def pw_show_button_toggled(self, a, b):
+        self.entry["password"].set_visibility(
+            self.pw_show_button.get_active()),
+        self.update_pw_gen_clickable()
 
     def __init__(self, rid, storage, main):
         RecordWindow.__init__(self, rid, storage, main)
-        
+       
         self.entry={}
         for label, key in (
             ("Username:", "username"),
@@ -350,16 +433,19 @@ class PasswordRecordWindow(RecordWindow):
 
                 self.pw_show_button=gtk.ToggleButton("Show password")
                 self.pw_show_button.show()
-                self.pw_show_button.connect("toggled", lambda a, c:
-                    self.entry["password"].set_visibility(
-                        self.pw_show_button.get_active()),
-                    None)
+                self.pw_show_button.connect("toggled",
+                    self.pw_show_button_toggled, None)
                 self.record_vbox.pack_start(self.pw_show_button, padding=3)
 
                 self.pw_gen_button=gtk.Button("Generate password")
                 self.pw_gen_button.show()
                 self.pw_gen_button.connect("clicked", self.pw_gen_dialog, None)
                 self.record_vbox.pack_start(self.pw_gen_button, padding=3)
+
+                self.pw_train_button=gtk.Button("Password Trainer")
+                self.pw_train_button.show()
+                self.pw_train_button.connect("clicked", self.pw_train, None)
+                self.record_vbox.pack_start(self.pw_train_button, padding=3)
 
         l=gtk.Label("Notes:")
         l.show()
